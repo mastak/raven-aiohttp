@@ -19,6 +19,9 @@ class AioHttpTransport(AsyncTransport, HTTPTransport):
     def __init__(self, parsed_url, *, verify_ssl=True, resolve=True,
                  timeout=defaults.TIMEOUT,
                  keepalive=True, family=socket.AF_INET, loop=None):
+        self.verify_ssl = verify_ssl
+        self.resolve = resolve
+        self.family = family
         if loop is None:
             loop = asyncio.get_event_loop()
         self._loop = loop
@@ -26,17 +29,23 @@ class AioHttpTransport(AsyncTransport, HTTPTransport):
         super().__init__(parsed_url, timeout, verify_ssl)
 
         if keepalive:
-            self._connector = aiohttp.TCPConnector(verify_ssl=verify_ssl,
-                                                   resolve=resolve,
-                                                   family=family,
-                                                   loop=loop)
+            self._connector = self._create_connector()
         else:
             self._connector = None
+
+    def _create_connector(self):
+        return aiohttp.TCPConnector(verify_ssl=self.verify_ssl,
+                                    resolve=self.resolve,
+                                    family=self.family,
+                                    loop=self._loop)
 
     def async_send(self, data, headers, success_cb, failure_cb):
         @asyncio.coroutine
         def f():
             try:
+                if self._connector is not None and self._connector.closed:
+                    self._connector = self._create_connector()
+
                 resp = yield from asyncio.wait_for(
                     aiohttp.request('POST',
                                     self._url, data=data, compress=False,
